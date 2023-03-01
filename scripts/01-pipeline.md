@@ -1,6 +1,4 @@
----
-title: LakePulse MAGs workflow
----
+# LakePulse MAGs workflow
 
 _Notes on file names_
 
@@ -8,18 +6,18 @@ Metagenomes were labelled with six-digit LakePulse lake identification codes in 
 
 Metagenome co-assemblies were labelled with ecozone abbreviations (**[ECOZONE_ALPHA]**; AH: Atlantic Highlands, AM: Atlantic Maritime, BCTC: Boreal/Taiga Cordilleras, BP: Boreal Plains, BS: Boreal Shield, MC: Montane Cordillera, MP: Mixedwood Plains, P: Prairies, PM: Pacific Maritime, SAP: Semi-Arid Plateaux, TP: Taiga Plains). Bins were also labelled with co-assembly ecozone abbreviations.
 
-# Create MAG set
+## Create MAG set
 
-## Trim reads
+### Trim reads
 
 Trim raw metagenome reads using Trimmomatic v. 0.36.
 
 ```sh
 for i in *_R1.fastq.gz
 do
-  base="${i%*_*.fastq.gz}"
-  echo "${base}"
-  java -jar $EBROOTTRIMMOMATIC/trimmomatic-0.36.jar PE "${base}"_R1.fastq.gz "${base}"_R2.fastq.gz "${base}"_p_R1.fq.gz "${base}"_u_R1.fq.gz "${base}"_p_R2.fq.gz "${base}"_u_R2.fq.gz ILLUMINACLIP:NovaSeq.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36
+	base="${i%*_*.fastq.gz}"
+	echo "${base}"
+	java -jar $EBROOTTRIMMOMATIC/trimmomatic-0.36.jar PE "${base}"_R1.fastq.gz "${base}"_R2.fastq.gz "${base}"_p_R1.fq.gz "${base}"_u_R1.fq.gz "${base}"_p_R2.fq.gz "${base}"_u_R2.fq.gz ILLUMINACLIP:NovaSeq.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:36
 done
 ```
 Count number of reads in trimmed fastq files.
@@ -32,7 +30,7 @@ do
 done
 ```
 
-## Co-assemble metagenomes
+### Co-assemble metagenomes
 
 Generate metagenome co-assemblies by ecozone from paired trimmed reads using MEGAHIT v. 1.2.7.
 
@@ -46,17 +44,41 @@ If MEGAHIT run is interrupted, continue with:
 megahit --continue -o ~/scratch/[ECOZONE_ALPHA] 
 ```
 
-## Bin contigs
+### Bin contigs
 
-### Calculate coverage
+#### Calculate coverage
 
-Calculate depth of coverage using MetaBAT v. 2.12.1.
+Index co-assemblies using BWA 0.7.17.
+
+```sh
+for i in [ECOZONE_ALPHA].final.contigs.fa; do
+	variable_name=$(echo "$i" | sed -e 's/.final.contigs.fa//g')
+	bwa index -p "$variable_name"-index -a bwtsw $i; wait
+	pigz $i
+done
+```
+
+Calculate depth of coverage using BWA 0.7.17.
+
+```sh
+for i in *_p_R1.fq.gz
+do
+	variable_name=$(echo $i | cut -f 1 -d '_')
+	echo $variable_name;
+	bwa mem -t 40 ~/scratch/[ECOZONE_ALPHA]/[ECOZONE_ALPHA]-index ~/scratch/LP2019/trimmed/"$variable_name"_p_R1.fq.gz ~/scratch/LP2019/trimmed/"$variable_name"_p_R2.fq.gz | samtools view -h -o ~/scratch/coassemblies/mapped/"$variable_name".sam; wait
+	samtools flagstat ~/scratch/coassemblies/mapped/"$variable_name".sam; wait
+	samtools view -F 4 -bS ~/scratch/coassemblies/mapped/"$variable_name".sam | samtools sort -o ~/scratch/coassemblies/mapped/"$variable_name".bam; wait
+	rm ~/scratch/coassemblies/mapped/"$variable_name".sam
+done
+```
+
+Summarize depth of coverage using MetaBAT v. 2.12.1.
 
 ```sh
 jgi_summarize_bam_contig_depths --outputDepth [ECOZONE_ALPHA]_depth.txt [ECOZONE_NUMBER]-*.bam
 ```
 
-### Perform binning
+#### Perform binning
 
 Bin ecozone co-assembly contigs based on depths of coverage using MetaBAT v. 2.12.1.
 
@@ -64,7 +86,7 @@ Bin ecozone co-assembly contigs based on depths of coverage using MetaBAT v. 2.1
 metabat -i [ECOZONE_ALPHA].final.contigs.fa -a [ECOZONE_ALPHA]_depth.txt -o [ECOZONE_ALPHA]_bin
 ```
 
-## Filter bins
+### Filter bins
 
 Filter bins based on quality assessments generated using CheckM v. 1.0.7.
 
@@ -76,16 +98,17 @@ checkm lineage_wf PATH/TO/lpmags/ PATH/TO/lpmags_checkm/ -x fa -t 8
 checkm tree_qa -o 2 -f lpmags_checkm_tree_qa.txt --tab_table PATH/TO/lpmags_checkm/
 ```
 
-## Dereplicate MAGs
+### Dereplicate MAGs
 
 Dereplicate MAGs at 95% ANI using dRep v. 3.2.0.
 
 ```sh
 dRep dereplicate -g lpmags_paths.txt -comp 50 --S_algorithm gANI -sa 0.95 -p 8 PATH/TO/lpmags_drep/
 ```
-# Annotate MAGs
 
-## Annotate genome features
+## Annotate MAGs
+
+### Annotate genome features
 
 Annotate MAG genome features with Prokka v. 1.12.
 
@@ -97,14 +120,14 @@ for filename in *.fa
 done
 ```
 
-## Annotate gene functions
+### Annotate gene functions
 
 Annotate MAG gene functions with KofamScan.
 
 ```sh
 for file in *.faa
 do
-  exec_annotation --tmp-dir $file.tmp -f detail-tsv --report-unannotated -o $file.kofam.tsv $file
+	exec_annotation --tmp-dir $file.tmp -f detail-tsv --report-unannotated -o $file.kofam.tsv $file
 done
 ```
 
@@ -142,16 +165,16 @@ dataframe_clean.loc[:,'T-value'] = dataframe_clean.loc[:,'score']/dataframe_clea
 filt=dataframe_clean.loc[dataframe_clean['T-value']>=float(T_set)]
 length=filt.shape[0]
 if args.dash == 'True':
-    #print("dash")
-    frames=[filt,dataframe_dash]
-    df_comp=pd.concat(frames)
-    df_comp.to_csv(str(path)+"_filter_"+str(T_set)+".txt",header=True,index=False,sep='\t',mode='a')
+	#print("dash")
+	frames=[filt,dataframe_dash]
+	df_comp=pd.concat(frames)
+	df_comp.to_csv(str(path)+"_filter_"+str(T_set)+".txt",header=True,index=False,sep='\t',mode='a')
 else:
-    filt.to_csv(str(path)+"_filter_"+str(T_set)+".txt",header=True,index=False,sep='\t',mode='a')
+	filt.to_csv(str(path)+"_filter_"+str(T_set)+".txt",header=True,index=False,sep='\t',mode='a')
 print(str(length)+" genes pass the filter criteria at threshold "+str(T_set))
 ```
 
-## Annotate RNA genes
+### Annotate RNA genes
 
 Annotate MAG RNA genes using Infernal v. 1.1.2.
 
@@ -171,7 +194,7 @@ do
 done
 ```
 
-## Annotate transporters
+### Annotate transporters
 
 Make BLAST database for the Transporter Classification Database (TCDB; release 2021/01/27).
 
@@ -191,7 +214,7 @@ do
 done
 ```
 
-## Annotate CAZymes
+### Annotate CAZymes
 
 Perform carbohydrate-active enzyme (CAZyme) HMM searches with HMMER 3.1b2.
 
@@ -205,7 +228,7 @@ do
 done
 ```
 
-# Classify MAGs
+## Classify MAGs
 
 Run GTDB-Tk v. 1.3.0.
 
@@ -226,15 +249,15 @@ gtdbtk infer --msa_file PATH/TO/lpmags_gtdbtk_align/lpmags.bac120.user_msa.fasta
 gtdbtk classify --batchfile lpmags_batchfile_allbins.txt --align_dir PATH/TO/lpmags_gtdbtk_align/ --prefix lpmags --cpus 8 --out_dir PATH/TO/lpmags_gtdbtk_classify/
 ```
 
-# Perform fragment recruitment
+## Perform fragment recruitment
 
-## Mask RNA genes
+### Mask RNA genes
 
-### Write rRNA and tRNA gene coordinates
+#### Write rRNA and tRNA gene coordinates
 
 Write ribosomal and transfer RNA gene coordinates in BED format (refer to R script/s).
 
-### Mask rRNA and tRNA genes
+#### Mask rRNA and tRNA genes
 
 Mask ribosomal and transfer RNA genes (with *N* nucleotides) using Bedtools v. 2.26.0 maskfasta.
 
@@ -246,9 +269,9 @@ do
 done
 ```
 
-## Map unassembled reads to MAGs
+### Map unassembled reads to MAGs
 
-### Index MAGs
+#### Index MAGs
 
 Index MAGs (with masked ribosomal and transfer RNA genes) using BBMap v. 37.36
 
@@ -260,7 +283,7 @@ do
 done
 ```
 
-### Map reads
+#### Map reads
 
 Map unassembled metagenome reads to MAGs (with masked ribosomal and transfer RNA genes) at 95% sequence identity threshold using BBMap v. 37.36 and format mapping files with Samtools v. 1.9.
 
@@ -297,9 +320,9 @@ do
 done
 ```
 
-## Format and count mapped reads
+### Format and count mapped reads
 
-### Retain mapped reads
+#### Retain mapped reads
 
 Retain only mapped reads in sorted BAM files.
 
@@ -307,13 +330,13 @@ Retain only mapped reads in sorted BAM files.
 cd PATH/TO/bam/
 while read p
 do
-  filename="$p"
-  prefix=`basename $filename _sorted.bam`
-  samtools view -b -F 4 $filename > PATH/TO/bam_mappedonly/${prefix}_mappedonly.bam
+	filename="$p"
+	prefix=`basename $filename _sorted.bam`
+	samtools view -b -F 4 $filename > PATH/TO/bam_mappedonly/${prefix}_mappedonly.bam
 done <PATH/TO/bbmap_server_unzipped.txt
 ```
 
-### Filter mapping files
+#### Filter mapping files
 
 Filter mapping files at a strict 96% sequence identity threshold.
 
@@ -341,7 +364,7 @@ with pysam.AlignmentFile(sys.argv[1] + ".filtered", "wb", header=samfile.header)
 				outf.write(aligned_segment)
 ```
 
-### Count mapped reads
+#### Count mapped reads
 
 Count number of filtered mapped reads.
 
@@ -350,25 +373,25 @@ Count number of filtered mapped reads.
 cd PATH/TO/bam_mappedonly/
 while read p
 do
-  filename="$p"
-  prefix=`basename $filename _mappedonly.bam.filtered`
-  samtools view -c $filename > PATH/TO/lpmags_nreads/${prefix}_mappedonly_filtered96_nreads.txt
+	filename="$p"
+	prefix=`basename $filename _mappedonly.bam.filtered`
+	samtools view -c $filename > PATH/TO/lpmags_nreads/${prefix}_mappedonly_filtered96_nreads.txt
 done <PATH/TO/lpmags_mappedonly_filtered_bam_ls.txt
 
 # Combine nreads files into a single file where column 1 is the file name and column 2 is the nreads
 while read p
 do
-  awk '{nreads+=$1} END {print FILENAME"\t"nreads}' "$p" >> lpmags_bam_filtered96_nreads_all.txt
+	awk '{nreads+=$1} END {print FILENAME"\t"nreads}' "$p" >> lpmags_bam_filtered96_nreads_all.txt
 done <lpmags_nreads_ls.txt
 ```
 
-# Create TAD80 matrix
+## Create TAD80 matrix
 
-## Count genome equivalents
+### Count genome equivalents
 
 Count genome equivalents in metagenomes using MicrobeCensus v. 1.1.0.
 
-## Create TAD80 table
+### Create TAD80 table
 
 Produce BedGraph file with bedtools genomecov (considering zero-coverage positions with -bga flag).
 
@@ -399,7 +422,7 @@ do
 done
 ```
 
-## Calculate MAG size
+### Calculate MAG size
 
 Count number of ACTG nucleotides (excludes Ns) in RNA gene-masked MAG fasta files.
 
