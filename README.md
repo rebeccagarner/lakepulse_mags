@@ -2,7 +2,7 @@
 
 <p align="center"><img src='images/lakepulse_mags_figure1ext.png' align="center" height="300"></p>
 
-Scripts associated with the submitted article
+Scripts associated with the article
 
 ---
 
